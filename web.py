@@ -1,467 +1,903 @@
-import streamlit
+import streamlit as st
 import numpy as np
-import matplotlib as plt
+import matplotlib.pyplot as plt
 import pandas as pd
 import sympy as sp
 from sympy import symbols, lambdify, sympify
 from sympy.parsing.sympy_parser import parse_expr
+from scipy.optimize import fsolve
+
+# ========== CONFIGURACIÓN DE LA PÁGINA ==========
+st.set_page_config(
+    page_title="Métodos Numéricos",
+    page_icon="🧮",
+    layout="wide"
+)
+
+# ========== FUNCIONES AUXILIARES ==========
+
+# Diccionario de funciones seguras para eval
+safe_funcs = {
+    "sin": np.sin,
+    "cos": np.cos,
+    "tan": np.tan,
+    "exp": np.exp,
+    "log": np.log,
+    "log10": np.log10,
+    "sqrt": np.sqrt,
+    "abs": np.abs,
+    "pi": np.pi,
+    "e": np.e
+}
+
+user_funcs = safe_funcs.copy()
+
+def limpiar_input(texto):
+    """Convierte ^ a ** para potencias"""
+    return texto.replace("^", "**")
 
 # ===================================
 # FUNCIONES PARA SISTEMAS NO LINEALES
 # ===================================
 
-# BISECCIÓN
-def metodo_biseccion():
-    print("\n--- MÉTODO DE BISECCIÓN ---")
-    x = symbols('x')
-    ecuacion = input("Ingrese la función en x (ejemplo: x**3 - x - 2): ")
-    f = sympify(ecuacion)
-    f_lambda = lambdify(x, f, 'numpy')
+def metodo_biseccion_ui():
+    st.subheader("🔍 Método de Bisección")
+    
+    st.markdown("""
+    **Descripción:** Encuentra la raíz de una ecuación en un intervalo [a,b] donde f(a) y f(b) tienen signos opuestos.
+    
+    **Fórmula:** $c = \\frac{a + b}{2}$
+    """)
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        ecuacion = st.text_input(
+            "Ingrese la función en x:",
+            value="x**3 - x - 2",
+            help="Ejemplos: x**3 - x - 2, sin(x) - x/2, exp(x) - 3*x"
+        )
+    
+    with col2:
+        tol = st.number_input("Tolerancia:", value=0.0001, format="%.6f")
+    
+    col_a, col_b = st.columns(2)
+    with col_a:
+        a = st.number_input("Límite inferior (a):", value=1.0)
+    with col_b:
+        b = st.number_input("Límite superior (b):", value=2.0)
+    
+    if st.button("🚀 Calcular Bisección", type="primary"):
+        try:
+            x = symbols('x')
+            f = sympify(ecuacion)
+            f_lambda = lambdify(x, f, 'numpy')
+            
+            if f_lambda(a) * f_lambda(b) > 0:
+                st.error("⚠ No hay cambio de signo en el intervalo [a,b]. Intenta otros valores.")
+                return
+            
+            iteraciones = []
+            a_original, b_original = a, b
+            iteracion = 0
+            c = None
+            
+            while abs(b - a) > tol:
+                iteracion += 1
+                c = (a + b) / 2
+                fc = f_lambda(c)
+                
+                iteraciones.append({
+                    "Iteración": iteracion,
+                    "a": round(a, 8),
+                    "b": round(b, 8),
+                    "c": round(c, 8),
+                    "f(c)": round(fc, 8),
+                    "Error": round(abs(b - a), 8)
+                })
+                
+                if f_lambda(a) * fc < 0:
+                    b = c
+                else:
+                    a = c
+                
+                if abs(fc) < tol:
+                    break
+            
+            # Mostrar resultados
+            col_m1, col_m2, col_m3 = st.columns(3)
+            with col_m1:
+                st.metric("🎯 Raíz aproximada", f"{c:.8f}")
+            with col_m2:
+                st.metric("🔢 Iteraciones", iteracion)
+            with col_m3:
+                st.metric("📊 Tolerancia", f"{tol:.6f}")
+            
+            # Gráfica y tabla en columnas
+            col_graf, col_tab = st.columns([1.5, 1])
+            
+            with col_graf:
+                st.subheader("📈 Gráfica de la función")
+                X = np.linspace(a_original - 1, b_original + 1, 400)
+                Y = f_lambda(X)
+                
+                fig, ax = plt.subplots(figsize=(10, 6))
+                ax.axhline(0, color='black', lw=0.8, linestyle='--')
+                ax.axvline(0, color='black', lw=0.8, linestyle='--')
+                ax.plot(X, Y, 'b-', linewidth=2, label=f"f(x) = {ecuacion}")
+                ax.scatter(c, f_lambda(c), color='red', s=150, zorder=5, label=f"Raíz ≈ {c:.4f}")
+                ax.grid(True, alpha=0.3)
+                ax.legend(fontsize=10)
+                ax.set_xlabel("x", fontsize=12)
+                ax.set_ylabel("f(x)", fontsize=12)
+                ax.set_title("Método de Bisección", fontsize=14)
+                st.pyplot(fig)
+            
+            with col_tab:
+                st.subheader("📋 Tabla de iteraciones")
+                df = pd.DataFrame(iteraciones)
+                st.dataframe(df, use_container_width=True, height=400)
+                
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="⬇️ Descargar CSV",
+                    data=csv,
+                    file_name="biseccion_resultados.csv",
+                    mime="text/csv"
+                )
+        
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
 
-    a = float(input("Ingrese el límite inferior (a): "))
-    b = float(input("Ingrese el límite superior (b): "))
-    tol = float(input("Ingrese la tolerancia (por ejemplo 0.0001): "))
 
-    if f_lambda(a) * f_lambda(b) > 0:
-        print("⚠ No hay cambio de signo en el intervalo.")
-        return
+def metodo_secante_ui():
+    st.subheader("📐 Método de la Secante")
+    
+    st.markdown("""
+    **Descripción:** Similar a Newton-Raphson pero no requiere la derivada. Usa dos puntos iniciales.
+    
+    **Fórmula:** $x_{n+1} = x_n - f(x_n) \\cdot \\frac{x_n - x_{n-1}}{f(x_n) - f(x_{n-1})}$
+    """)
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        ecuacion = st.text_input(
+            "Ingrese la función en x:",
+            value="x**3 - x - 2",
+            key="secante_ec"
+        )
+    
+    with col2:
+        tol = st.number_input("Tolerancia:", value=0.0001, format="%.6f", key="secante_tol")
+    
+    col_x0, col_x1, col_max = st.columns(3)
+    with col_x0:
+        x0 = st.number_input("Primer valor inicial (x₀):", value=1.0)
+    with col_x1:
+        x1 = st.number_input("Segundo valor inicial (x₁):", value=2.0)
+    with col_max:
+        max_iter = st.number_input("Máximo de iteraciones:", value=100, min_value=1, step=1)
+    
+    if st.button("🚀 Calcular Secante", type="primary"):
+        try:
+            x = symbols('x')
+            f = sympify(ecuacion)
+            f_lambda = lambdify(x, f, 'numpy')
+            
+            iteraciones = []
+            iteracion = 0
+            error = abs(x1 - x0)
+            x2 = x1
+            
+            while error > tol and iteracion < max_iter:
+                iteracion += 1
+                f0 = f_lambda(x0)
+                f1 = f_lambda(x1)
+                
+                if abs(f1 - f0) < 1e-12:
+                    st.error("⚠ División por cero detectada. El método falla.")
+                    return
+                
+                x2 = x1 - f1 * (x1 - x0) / (f1 - f0)
+                error = abs(x2 - x1)
+                
+                iteraciones.append({
+                    "Iteración": iteracion,
+                    "x₀": round(x0, 8),
+                    "x₁": round(x1, 8),
+                    "f(x₁)": round(f1, 8),
+                    "x₂": round(x2, 8),
+                    "Error": round(error, 8)
+                })
+                
+                x0, x1 = x1, x2
+            
+            # Resultados
+            col_m1, col_m2, col_m3 = st.columns(3)
+            with col_m1:
+                st.metric("🎯 Raíz aproximada", f"{x2:.8f}")
+            with col_m2:
+                st.metric("🔢 Iteraciones", iteracion)
+            with col_m3:
+                estado = "✅ Convergió" if error < tol else "⚠️ No convergió"
+                st.metric("Estado", estado)
+            
+            # Gráfica y tabla
+            col_graf, col_tab = st.columns([1.5, 1])
+            
+            with col_graf:
+                st.subheader("📈 Gráfica de la función")
+                X = np.linspace(x2 - 3, x2 + 3, 400)
+                Y = f_lambda(X)
+                
+                fig, ax = plt.subplots(figsize=(10, 6))
+                ax.axhline(0, color='black', lw=0.8, linestyle='--')
+                ax.plot(X, Y, 'b-', linewidth=2, label=f"f(x) = {ecuacion}")
+                ax.scatter(x2, f_lambda(x2), color='red', s=150, zorder=5, label=f"Raíz ≈ {x2:.4f}")
+                ax.grid(True, alpha=0.3)
+                ax.legend()
+                ax.set_xlabel("x")
+                ax.set_ylabel("f(x)")
+                ax.set_title("Método de la Secante")
+                st.pyplot(fig)
+            
+            with col_tab:
+                st.subheader("📋 Tabla de iteraciones")
+                df = pd.DataFrame(iteraciones)
+                st.dataframe(df, use_container_width=True, height=400)
+                
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="⬇️ Descargar CSV",
+                    data=csv,
+                    file_name="secante_resultados.csv",
+                    mime="text/csv"
+                )
+        
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
 
-    iteracion = 0
-    c = None
-    while abs(b - a) > tol:
-        iteracion += 1
-        c = (a + b) / 2
-        if f_lambda(a) * f_lambda(c) < 0:
-            b = c
-        else:
-            a = c
-        if abs(f_lambda(c)) < tol:
-            break
 
-    print(f"\nRaíz aproximada: {c}")
-    print(f"Número de iteraciones: {iteracion}")
-    print(f"Tolerancia usada: {tol}")
+def newton_raphson_2v_ui():
+    st.subheader("🔢 Newton-Raphson (2 variables)")
+    
+    st.markdown("""
+    **Descripción:** Resuelve sistemas de 2 ecuaciones no lineales con 2 incógnitas.
+    
+    Ejemplo de sistema:
+    - f₁(x,y) = x² + y² - 4
+    - f₂(x,y) = x - y - 1
+    """)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        f1_str = st.text_input("f₁(x,y) =", value="x**2 + y**2 - 4", help="Primera ecuación")
+    with col2:
+        f2_str = st.text_input("f₂(x,y) =", value="x - y - 1", help="Segunda ecuación")
+    
+    col_x, col_y = st.columns(2)
+    with col_x:
+        x0_init = st.number_input("Valor inicial x₀:", value=1.0)
+    with col_y:
+        y0_init = st.number_input("Valor inicial y₀:", value=1.0)
+    
+    if st.button("🚀 Calcular Newton-Raphson 2V", type="primary"):
+        try:
+            x, y = sp.symbols("x y")
+            
+            f1_expr = parse_expr(f1_str, {"x": x, "y": y, **user_funcs})
+            f2_expr = parse_expr(f2_str, {"x": x, "y": y, **user_funcs})
+            
+            f1 = lambdify((x, y), f1_expr, "numpy")
+            f2 = lambdify((x, y), f2_expr, "numpy")
+            
+            def sistema(vars):
+                return [f1(vars[0], vars[1]), f2(vars[0], vars[1])]
+            
+            guess = [x0_init, y0_init]
+            sol = fsolve(sistema, guess)
+            
+            st.success(f"✅ Solución encontrada: x = {sol[0]:.6f}, y = {sol[1]:.6f}")
+            
+            col_m1, col_m2 = st.columns(2)
+            with col_m1:
+                st.metric("x", f"{sol[0]:.8f}")
+            with col_m2:
+                st.metric("y", f"{sol[1]:.8f}")
+            
+            # Gráfica
+            st.subheader("📈 Curvas de nivel f₁=0 y f₂=0")
+            
+            x_vals = np.linspace(sol[0] - 3, sol[0] + 3, 200)
+            y_vals = np.linspace(sol[1] - 3, sol[1] + 3, 200)
+            X, Y = np.meshgrid(x_vals, y_vals)
+            Z1 = f1(X, Y)
+            Z2 = f2(X, Y)
+            
+            fig, ax = plt.subplots(figsize=(10, 7))
+            ax.contour(X, Y, Z1, levels=[0], colors='blue', linewidths=2, label='f₁=0')
+            ax.contour(X, Y, Z2, levels=[0], colors='red', linewidths=2, label='f₂=0')
+            ax.scatter(sol[0], sol[1], color='black', s=150, zorder=5, label='Solución')
+            ax.scatter(x0_init, y0_init, color='green', s=100, marker='x', label='Punto inicial')
+            ax.grid(True, alpha=0.3)
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
+            ax.legend()
+            ax.set_title("Newton-Raphson (2 variables)")
+            st.pyplot(fig)
+            
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
 
-    X = np.linspace(a - 1, b + 1, 400)
-    Y = f_lambda(X)
-    plt.axhline(0, color='black', lw=0.8)
-    plt.plot(X, Y, label=f"f(x) = {ecuacion}")
-    plt.scatter(c, f_lambda(c), color='red', label=f"Raíz ≈ {round(c,4)}")
-    plt.legend()
-    plt.show()
 
-# MÉTODO SECANTE
-def metodo_secante():
-    print("\n--- MÉTODO DE LA SECANTE ---")
-    x = symbols('x')
-    ecuacion = input("Ingrese la función en x (ejemplo: x**3 - x - 2): ")
-    f = sympify(ecuacion)
-    f_lambda = lambdify(x, f, 'numpy')
+def newton_raphson_3v_ui():
+    st.subheader("🔢 Newton-Raphson (3 variables)")
+    
+    st.markdown("""
+    **Descripción:** Resuelve sistemas de 3 ecuaciones no lineales con 3 incógnitas.
+    """)
+    
+    f1_str = st.text_input("f₁(x,y,z) =", value="x**2 + y**2 + z**2 - 9")
+    f2_str = st.text_input("f₂(x,y,z) =", value="x + y - z - 1")
+    f3_str = st.text_input("f₃(x,y,z) =", value="x - y + z - 1")
+    
+    col_x, col_y, col_z = st.columns(3)
+    with col_x:
+        x0_init = st.number_input("x₀:", value=1.0)
+    with col_y:
+        y0_init = st.number_input("y₀:", value=1.0)
+    with col_z:
+        z0_init = st.number_input("z₀:", value=1.0)
+    
+    if st.button("🚀 Calcular Newton-Raphson 3V", type="primary"):
+        try:
+            x, y, z = sp.symbols("x y z")
+            
+            f1_expr = parse_expr(f1_str, {"x":x, "y":y, "z":z, **user_funcs})
+            f2_expr = parse_expr(f2_str, {"x":x, "y":y, "z":z, **user_funcs})
+            f3_expr = parse_expr(f3_str, {"x":x, "y":y, "z":z, **user_funcs})
+            
+            f1 = lambdify((x,y,z), f1_expr, "numpy")
+            f2 = lambdify((x,y,z), f2_expr, "numpy")
+            f3 = lambdify((x,y,z), f3_expr, "numpy")
+            
+            def sistema(vars):
+                return [f1(vars[0],vars[1],vars[2]), 
+                        f2(vars[0],vars[1],vars[2]), 
+                        f3(vars[0],vars[1],vars[2])]
+            
+            guess = [x0_init, y0_init, z0_init]
+            sol = fsolve(sistema, guess)
+            
+            st.success(f"✅ Solución: x={sol[0]:.6f}, y={sol[1]:.6f}, z={sol[2]:.6f}")
+            
+            col_m1, col_m2, col_m3 = st.columns(3)
+            with col_m1:
+                st.metric("x", f"{sol[0]:.8f}")
+            with col_m2:
+                st.metric("y", f"{sol[1]:.8f}")
+            with col_m3:
+                st.metric("z", f"{sol[2]:.8f}")
+            
+            # Gráfica 3D de trayectoria
+            st.subheader("📊 Trayectoria de convergencia")
+            
+            from mpl_toolkits.mplot3d import Axes3D
+            pts = [guess]
+            v = np.array(guess)
+            for _ in range(8):
+                v = v + 0.5 * (np.array(sol) - v)
+                pts.append(v.copy())
+            pts = np.array(pts)
+            
+            fig = plt.figure(figsize=(10, 7))
+            ax = fig.add_subplot(111, projection='3d')
+            ax.plot(pts[:,0], pts[:,1], pts[:,2], marker='o', linewidth=2, markersize=6)
+            ax.scatter(sol[0], sol[1], sol[2], color='red', s=150, label='Solución')
+            ax.scatter(guess[0], guess[1], guess[2], color='green', s=100, marker='x', label='Inicial')
+            ax.set_xlabel('x')
+            ax.set_ylabel('y')
+            ax.set_zlabel('z')
+            ax.set_title('Newton-Raphson (3 variables)')
+            ax.legend()
+            st.pyplot(fig)
+            
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
 
-    x0 = float(input("Ingrese el primer valor inicial (x0): "))
-    x1 = float(input("Ingrese el segundo valor inicial (x1): "))
-    tol = float(input("Ingrese la tolerancia (por ejemplo 0.0001): "))
-    max_iter = int(input("Ingrese el número máximo de iteraciones: "))
-
-    iteracion = 0
-    error = abs(x1 - x0)
-    x2 = x1
-    while error > tol and iteracion < max_iter:
-        iteracion += 1
-        f0 = f_lambda(x0)
-        f1v = f_lambda(x1)
-
-        if (f1v - f0) == 0:
-            print("⚠ División por cero, el método falla.")
-            return
-
-        x2 = x1 - f1v * (x1 - x0) / (f1v - f0)
-        error = abs(x2 - x1)
-        x0, x1 = x1, x2
-
-    print("\n>> Raíz aproximada:", x2)
-    print(f">> Iteraciones realizadas: {iteracion}")
-    print(f">> Tolerancia usada: {tol}")
-
-    X = np.linspace(x2 - 3, x2 + 3, 400)
-    Y = f_lambda(X)
-    plt.axhline(0, color='black', lw=0.8)
-    plt.plot(X, Y, label=f"f(x) = {ecuacion}")
-    plt.scatter(x2, f_lambda(x2), color='red', s=50, label=f"Raíz ≈ {round(x2,4)}")
-    plt.legend()
-    plt.title("Método de la Secante")
-    plt.xlabel("x")
-    plt.ylabel("f(x)")
-    plt.grid(True)
-    plt.show()
-
-# NEWTON-RAPHSON 2 VARIABLES
-def newton_raphson_2v():
-    print("\n--- NEWTON-RAPHSON (2 variables) ---")
-    x, y = sp.symbols("x y")
-    f1_str = input("f1(x,y) = ")
-    f2_str = input("f2(x,y) = ")
-
-    f1_expr = parse_expr(f1_str, {"x": x, "y": y, **user_funcs})
-    f2_expr = parse_expr(f2_str, {"x": x, "y": y, **user_funcs})
-
-    f1 = lambdify((x, y), f1_expr, "numpy")
-    f2 = lambdify((x, y), f2_expr, "numpy")
-
-    guess = list(map(float, input("Ingrese punto inicial (ej: 1 1): ").split()))
-
-    def sistema(vars):
-        return [f1(vars[0], vars[1]), f2(vars[0], vars[1])]
-
-    from scipy.optimize import fsolve
-    sol = fsolve(sistema, guess)
-    print(">> Solución aproximada:", sol)
-
-    try:
-        x_vals = np.linspace(sol[0] - 3, sol[0] + 3, 200)
-        y_vals = np.linspace(sol[1] - 3, sol[1] + 3, 200)
-        X, Y = np.meshgrid(x_vals, y_vals)
-        Z1, Z2 = f1(X,Y), f2(X,Y)
-        plt.figure(figsize=(7, 6))
-        plt.contour(X, Y, Z1, levels=[0], colors='blue', linewidths=2)
-        plt.contour(X, Y, Z2, levels=[0], colors='red', linewidths=2)
-        plt.scatter(sol[0], sol[1], color='black', s=80)
-        plt.title("Newton-Raphson (2 variables)")
-        plt.xlabel("x"); plt.ylabel("y")
-        plt.legend(["f1=0","f2=0","Solución"])
-        plt.grid(True); plt.show()
-    except Exception as e:
-        print("⚠ No se pudo graficar:", e)
-
-# NEWTON-RAPHSON 3 VARIABLES
-def newton_raphson_3v():
-    print("\n--- NEWTON-RAPHSON (3 variables) ---")
-    x, y, z = sp.symbols("x y z")
-    f1_str = input("f1(x,y,z) = ")
-    f2_str = input("f2(x,y,z) = ")
-    f3_str = input("f3(x,y,z) = ")
-
-    f1_expr = parse_expr(f1_str, {"x":x,"y":y,"z":z,**user_funcs})
-    f2_expr = parse_expr(f2_str, {"x":x,"y":y,"z":z,**user_funcs})
-    f3_expr = parse_expr(f3_str, {"x":x,"y":y,"z":z,**user_funcs})
-
-    f1 = lambdify((x,y,z),f1_expr,"numpy")
-    f2 = lambdify((x,y,z),f2_expr,"numpy")
-    f3 = lambdify((x,y,z),f3_expr,"numpy")
-
-    guess = list(map(float, input("Ingrese punto inicial (ej: 1 1 1): ").split()))
-
-    def sistema(vars):
-        return [f1(vars[0],vars[1],vars[2]),f2(vars[0],vars[1],vars[2]),f3(vars[0],vars[1],vars[2])]
-
-    from scipy.optimize import fsolve
-    sol = fsolve(sistema, guess)
-    print(">> Solución aproximada:", sol)
-
-    try:
-        from mpl_toolkits.mplot3d import Axes3D
-        pts = [guess]; v=np.array(guess)
-        for _ in range(8):
-            v = v + 0.5*(np.array(sol)-v); pts.append(v.copy())
-        pts = np.array(pts)
-        fig=plt.figure(figsize=(7,6))
-        ax=fig.add_subplot(111,projection='3d')
-        ax.plot(pts[:,0],pts[:,1],pts[:,2],marker='o')
-        ax.scatter(sol[0],sol[1],sol[2],color='red',label='Solución')
-        ax.set_xlabel('x'); ax.set_ylabel('y'); ax.set_zlabel('z')
-        ax.set_title('Newton-Raphson (3 variables)'); ax.legend()
-        plt.show()
-    except Exception as e:
-        print("⚠ No se pudo graficar:", e)
-
-# PUNTO FIJO 2 VARIABLES
-def punto_fijo_2():
-    print("\n--- Punto Fijo (2 variables) ---")
-    fx = limpiar_input(input("x = "))
-    fy = limpiar_input(input("y = "))
-
-    x0,y0 = map(float,input("Punto inicial (x0 y0): ").split())
-    tol = float(input("Tolerancia: "))
-    max_iter = int(input("Máximo iteraciones: "))
-
-    def g(v):
-        x,y=v
-        locals_dict={"x":x,"y":y,**safe_funcs}
-        return np.array([eval(fx,{"__builtins__":None},locals_dict),
-                         eval(fy,{"__builtins__":None},locals_dict)])
-
-    datos=[];v=np.array([x0,y0])
-    for i in range(max_iter):
-        nuevo=g(v);error=np.linalg.norm(nuevo-v)
-        datos.append([i+1,v[0],v[1],nuevo[0],nuevo[1],error])
-        if error<tol:v=nuevo;break
-        v=nuevo
-    else:print("⚠ No se alcanzó la tolerancia")
-
-    tabla=pd.DataFrame(datos,columns=["Iteración","x0","y0","x1","y1","Error"])
-    print(tabla.to_string(index=False))
-    print(f"\n>> Solución aproximada: x={v[0]}, y={v[1]}")
-
-    try:
-        x_vals=np.linspace(v[0]-3,v[0]+3,200)
-        y_vals=np.linspace(v[1]-3,v[1]+3,200)
-        X,Y=np.meshgrid(x_vals,y_vals)
-        Z1=np.vectorize(lambda x,y:eval(fx,{"__builtins__":None,"x":x,"y":y,**safe_funcs}))(X,Y)-X
-        Z2=np.vectorize(lambda x,y:eval(fy,{"__builtins__":None,"x":x,"y":y,**safe_funcs}))(X,Y)-Y
-        plt.figure(figsize=(7,6))
-        plt.contour(X,Y,Z1,levels=[0],colors='blue',linewidths=2)
-        plt.contour(X,Y,Z2,levels=[0],colors='red',linewidths=2)
-        plt.scatter(v[0],v[1],color='black',s=70)
-        plt.title("Punto Fijo (2 variables)");plt.xlabel("x");plt.ylabel("y");plt.grid(True)
-        plt.show()
-    except Exception as e:
-        print("⚠ No se pudo graficar:", e)
-
-# PUNTO FIJO 3 VARIABLES
-def punto_fijo_3():
-
-    print("\n--- Punto Fijo (3 variables) ---")
-    fx = limpiar_input(input("x = "))
-    fy = limpiar_input(input("y = "))
-    fz = limpiar_input(input("z = "))
-
-    x0, y0, z0 = map(float, input("Punto inicial (x0 y0 z0): ").split())
-    tol = float(input("Tolerancia: "))
-    max_iter = int(input("Máximo iteraciones: "))
-
-    def g(v):
-        x, y, z = v
-        locals_dict = {"x": x, "y": y, "z": z, **safe_funcs}
-        return np.array([
-            eval(fx, {"__builtins__": None}, locals_dict),
-            eval(fy, {"__builtins__": None}, locals_dict),
-            eval(fz, {"__builtins__": None}, locals_dict)
-        ])
-
-    datos = []
-    v = np.array([x0, y0, z0])
-    pts = [v.copy()]  # Guardar cada iteración
-    for i in range(max_iter):
-        nuevo = g(v)
-        error = np.linalg.norm(nuevo - v)
-        datos.append([i+1, v[0], v[1], v[2], nuevo[0], nuevo[1], nuevo[2], error])
-        v = nuevo
-        pts.append(v.copy())
-        if error < tol:
-            break
-    else:
-        print("⚠ No se alcanzó la tolerancia")
-
-    tabla = pd.DataFrame(datos, columns=["Iteración", "x0", "y0", "z0", "x1", "y1", "z1", "Error"])
-    print(tabla.to_string(index=False))
-    print(f"\n>> Solución aproximada: x={v[0]}, y={v[1]}, z={v[2]}")
-
-    try:
-        from mpl_toolkits.mplot3d import Axes3D
-        pts = np.array(pts)
-        fig = plt.figure(figsize=(8, 6))
-        ax = fig.add_subplot(111, projection='3d')
-        ax.plot(pts[:, 0], pts[:, 1], pts[:, 2], marker='o', color='blue', label="Trayectoria")
-        ax.scatter(pts[-1, 0], pts[-1, 1], pts[-1, 2], color='red', s=80, label="Solución")
-        ax.set_xlabel("x"); ax.set_ylabel("y"); ax.set_zlabel("z")
-        ax.set_title("Punto Fijo (3 variables) - Trayectoria")
-        ax.legend()
-        plt.show()
-    except Exception as e:
-        print("⚠ No se pudo graficar:", e)
 
 # ======================
 # SISTEMAS DE ECUACIONES
 # ======================
 
-# DIRECTOS
+def sistemas_lineales_ui():
+    st.subheader("📐 Sistemas de Ecuaciones Lineales")
+    
+    st.markdown("""
+    **Resuelve sistemas de la forma Ax = b**
+    
+    Puedes elegir entre métodos directos e iterativos.
+    """)
+    
+    metodo = st.selectbox(
+        "Selecciona el método:",
+        ["Método de la Inversa", "Eliminación de Gauss", "Gauss-Jordan", 
+         "Jacobi (iterativo)", "Gauss-Seidel (iterativo)"]
+    )
+    
+    st.info("📝 Ingresa la matriz A y el vector b del sistema Ax = b")
+    
+    n = st.number_input("Tamaño del sistema (n×n):", min_value=2, max_value=10, value=3, step=1)
+    
+    st.write("**Matriz A:**")
+    cols_A = st.columns(int(n))
+    A = []
+    for i in range(int(n)):
+        fila = []
+        for j in range(int(n)):
+            with cols_A[j]:
+                val = st.number_input(f"A[{i+1},{j+1}]", value=1.0 if i==j else 0.0, key=f"a_{i}_{j}", format="%.4f")
+                fila.append(val)
+        A.append(fila)
+    
+    A = np.array(A)
+    
+    st.write("**Vector b:**")
+    cols_b = st.columns(int(n))
+    b = []
+    for i in range(int(n)):
+        with cols_b[i]:
+            val = st.number_input(f"b[{i+1}]", value=1.0, key=f"b_{i}", format="%.4f")
+            b.append(val)
+    
+    b = np.array(b)
+    
+    # Parámetros para métodos iterativos
+    if metodo in ["Jacobi (iterativo)", "Gauss-Seidel (iterativo)"]:
+        col_tol, col_max = st.columns(2)
+        with col_tol:
+            tol = st.number_input("Tolerancia:", value=1e-6, format="%.2e")
+        with col_max:
+            max_iter = st.number_input("Máximo iteraciones:", value=100, min_value=1, step=1)
+    
+    if st.button("🚀 Resolver Sistema", type="primary"):
+        try:
+            if metodo == "Método de la Inversa":
+                det = np.linalg.det(A)
+                if abs(det) < 1e-10:
+                    st.error("⚠ El sistema no tiene solución única (det(A) ≈ 0)")
+                    return
+                
+                A_inv = np.linalg.inv(A)
+                x = np.dot(A_inv, b)
+                
+                st.success("✅ Sistema resuelto usando A⁻¹")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("**Inversa de A:**")
+                    st.dataframe(pd.DataFrame(A_inv), use_container_width=True)
+                
+                with col2:
+                    st.write("**Solución x:**")
+                    sol_df = pd.DataFrame({"Variable": [f"x{i+1}" for i in range(len(x))],
+                                          "Valor": x})
+                    st.dataframe(sol_df, use_container_width=True)
+            
+            elif metodo == "Eliminación de Gauss":
+                n_size = len(b)
+                M = np.hstack([A.astype(float), b.reshape(-1,1)])
+                
+                for k in range(n_size):
+                    max_row = np.argmax(abs(M[k:,k])) + k
+                    M[[k, max_row]] = M[[max_row, k]]
+                    for i in range(k+1, n_size):
+                        if abs(M[k][k]) < 1e-10:
+                            st.error("⚠ División por cero en eliminación")
+                            return
+                        factor = M[i][k] / M[k][k]
+                        M[i] = M[i] - factor * M[k]
+                
+                x = np.zeros(n_size)
+                for i in range(n_size-1, -1, -1):
+                    x[i] = (M[i, -1] - np.dot(M[i,i+1:n_size], x[i+1:n_size])) / M[i,i]
+                
+                st.success("✅ Sistema resuelto usando Eliminación de Gauss")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("**Matriz aumentada final:**")
+                    st.dataframe(pd.DataFrame(M), use_container_width=True)
+                
+                with col2:
+                    st.write("**Solución x:**")
+                    sol_df = pd.DataFrame({"Variable": [f"x{i+1}" for i in range(len(x))],
+                                          "Valor": x})
+                    st.dataframe(sol_df, use_container_width=True)
+            
+            elif metodo == "Gauss-Jordan":
+                n_size = len(b)
+                M = np.hstack([A.astype(float), b.reshape(-1,1)])
+                
+                for k in range(n_size):
+                    if abs(M[k][k]) < 1e-10:
+                        st.error("⚠ Pivote cero en Gauss-Jordan")
+                        return
+                    M[k] = M[k] / M[k][k]
+                    for i in range(n_size):
+                        if i != k:
+                            M[i] = M[i] - M[i][k] * M[k]
+                
+                x = M[:, -1]
+                
+                st.success("✅ Sistema resuelto usando Gauss-Jordan")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("**Matriz en forma identidad:**")
+                    st.dataframe(pd.DataFrame(M), use_container_width=True)
+                
+                with col2:
+                    st.write("**Solución x:**")
+                    sol_df = pd.DataFrame({"Variable": [f"x{i+1}" for i in range(len(x))],
+                                          "Valor": x})
+                    st.dataframe(sol_df, use_container_width=True)
+            
+            elif metodo == "Jacobi (iterativo)":
+                n_size = len(b)
+                x = np.zeros(n_size)
+                historial = []
+                
+                for it in range(int(max_iter)):
+                    x_new = np.zeros(n_size)
+                    for i in range(n_size):
+                        if abs(A[i][i]) < 1e-10:
+                            st.error("⚠ Diagonal con cero en Jacobi")
+                            return
+                        s = sum(A[i][j] * x[j] for j in range(n_size) if j != i)
+                        x_new[i] = (b[i] - s) / A[i][i]
+                    
+                    historial.append([it+1] + list(x_new))
+                    
+                    if np.linalg.norm(x_new - x, ord=np.inf) < tol:
+                        st.success(f"✅ Convergió en {it+1} iteraciones")
+                        df = pd.DataFrame(historial, columns=["Iteración"] + [f"x{i+1}" for i in range(n_size)])
+                        
+                        col_res, col_tab = st.columns([1, 2])
+                        with col_res:
+                            st.write("**Solución final:**")
+                            sol_df = pd.DataFrame({"Variable": [f"x{i+1}" for i in range(n_size)],
+                                                  "Valor": x_new})
+                            st.dataframe(sol_df, use_container_width=True)
+                        
+                        with col_tab:
+                            st.write("**Historial de iteraciones:**")
+                            st.dataframe(df, use_container_width=True, height=400)
+                        return
+                    
+                    x = x_new
+                
+                st.warning(f"⚠️ No convergió en {max_iter} iteraciones")
+                df = pd.DataFrame(historial, columns=["Iteración"] + [f"x{i+1}" for i in range(n_size)])
+                st.dataframe(df, use_container_width=True, height=400)
+        
+        except Exception as e:
+            st.error(f"❌ Error al resolver el sistema: {str(e)}")
 
-# MÉTODO INVERSA
-def metodo_inversa(A, b):
-    print("\n--- Método de la Inversa ---")
-    det = np.linalg.det(A)
-    if det == 0:
-        print(" El sistema no tiene solución única (det(A) = 0).")
-        return
-    A_inv = np.linalg.inv(A)
-    x = np.dot(A_inv, b)
-    print("\nMatriz A:\n", A)
-    print("\nVector b:\n", b)
-    print("\nInversa de A:\n", A_inv)
-    print("\nSolución del sistema (x = A⁻¹·b):\n", x)
-    return x
-
-# ELIMINACIÓN DE GAUSS
-def gauss_elimination(A, b):
-    print("\n--- Método de Eliminación de Gauss ---")
-    n = len(b)
-    M = np.hstack([A.astype(float), b.reshape(-1,1)])
-
-    for k in range(n):
-        max_row = np.argmax(abs(M[k:,k])) + k
-        M[[k, max_row]] = M[[max_row, k]]
-        for i in range(k+1, n):
-            factor = M[i][k] / M[k][k]
-            M[i] = M[i] - factor * M[k]
-
-    x = np.zeros(n)
-    for i in range(n-1, -1, -1):
-        x[i] = (M[i, -1] - np.dot(M[i,i+1:n], x[i+1:n])) / M[i,i]
-
-    return x
-
-# GAUSS-JORDAN
-def gauss_jordan(A, b):
-    print("\n--- Método de Gauss-Jordan ---")
-    n = len(b)
-    M = np.hstack([A.astype(float), b.reshape(-1,1)])
-
-    for k in range(n):
-        M[k] = M[k] / M[k][k]
-        for i in range(n):
-            if i != k:
-                M[i] = M[i] - M[i][k] * M[k]
-
-    x = M[:, -1]
-    print("\nMatriz reducida a forma identidad:\n", M)
-    print("\nSolución del sistema:\n", x)
-    return x
-
-# REPETITIVOS
-
-# JACOBI
-def jacobi(A, b, tol=1e-6, max_iter=100):
-    print("\n--- Método Iterativo de Jacobi ---")
-    n = len(b)
-    x = np.zeros(n)
-    historial = []
-
-    for it in range(max_iter):
-        x_new = np.zeros(n)
-        for i in range(n):
-            s = sum(A[i][j] * x[j] for j in range(n) if j != i)
-            x_new[i] = (b[i] - s) / A[i][i]
-        historial.append([it+1] + list(x_new))
-
-        if np.linalg.norm(x_new - x, ord=np.inf) < tol:
-            print(f"\n Convergió en {it+1} iteraciones")
-            df = pd.DataFrame(historial, columns=["Iteración"] + [f"x{i+1}" for i in range(n)])
-            print(df)
-            return x_new
-        x = x_new
-
-    print("\n No convergió en el número máximo de iteraciones.")
-    df = pd.DataFrame(historial, columns=["Iteración"] + [f"x{i+1}" for i in range(n)])
-    print(df)
-    return x
-
-# GAUSS-SEIDEL
-def gauss_seidel(A, b, tol=1e-6, max_iter=100):
-    print("\n--- Método Iterativo de Gauss-Seidel ---")
-    n = len(b)
-    x = np.zeros(n)
-    historial = []
-
-    for it in range(max_iter):
-        x_new = np.copy(x)
-        for i in range(n):
-            s = sum(A[i][j] * x_new[j] for j in range(n) if j != i)
-            x_new[i] = (b[i] - s) / A[i][i]
-        historial.append([it+1] + list(x_new))
-
-        if np.linalg.norm(x_new - x, ord=np.inf) < tol:
-            print(f"\n Convergió en {it+1} iteraciones")
-            df = pd.DataFrame(historial, columns=["Iteración"] + [f"x{i+1}" for i in range(n)])
-            print(df)
-            return x_new
-        x = x_new
-
-    print("\n❌ No convergió en el número máximo de iteraciones.")
-    df = pd.DataFrame(historial, columns=["Iteración"] + [f"x{i+1}" for i in range(n)])
-    print(df)
-    return x
 
 # =================
 # ALGEBRA MATRICIAL
 # =================
 
-# FUNCIONES AUXILIARES
-
-def leer_matriz():
-    while True:
-        try:
-            filas = int(input("Número de filas: "))
-            columnas = int(input("Número de columnas: "))
-            break
-        except ValueError:
-            print("Ingrese un número entero válido.")
+def algebra_matricial_ui():
+    st.subheader("🔢 Operaciones con Matrices")
     
-    matriz = []
-    print("Ingrese los elementos de la matriz:")
-    for i in range(filas):
-        fila = []
-        for j in range(columnas):
-            while True:
-                try:
-                    valor = float(input(f"Elemento [{i+1}][{j+1}]: "))
-                    break
-                except ValueError:
-                    print("Ingrese un número válido.")
-            fila.append(valor)
-        matriz.append(fila)
-    return np.array(matriz)
+    operacion = st.selectbox(
+        "Selecciona la operación:",
+        ["Suma de matrices", "Multiplicación de matrices", "Determinante", "Inversa de matriz"]
+    )
+    
+    if operacion == "Suma de matrices":
+        st.info("➕ Suma dos matrices del mismo tamaño")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Matriz A:**")
+            filas_a = st.number_input("Filas de A:", min_value=1, max_value=10, value=2, step=1, key="filas_a")
+            cols_a = st.number_input("Columnas de A:", min_value=1, max_value=10, value=2, step=1, key="cols_a")
+            
+            A = []
+            for i in range(int(filas_a)):
+                fila = []
+                cols_input = st.columns(int(cols_a))
+                for j in range(int(cols_a)):
+                    with cols_input[j]:
+                        val = st.number_input(f"A[{i+1},{j+1}]", value=0.0, key=f"suma_a_{i}_{j}", format="%.2f")
+                        fila.append(val)
+                A.append(fila)
+            A = np.array(A)
+        
+        with col2:
+            st.write("**Matriz B:**")
+            st.write(f"Tamaño: {int(filas_a)}×{int(cols_a)}")
+            
+            B = []
+            for i in range(int(filas_a)):
+                fila = []
+                cols_input = st.columns(int(cols_a))
+                for j in range(int(cols_a)):
+                    with cols_input[j]:
+                        val = st.number_input(f"B[{i+1},{j+1}]", value=0.0, key=f"suma_b_{i}_{j}", format="%.2f")
+                        fila.append(val)
+                B.append(fila)
+            B = np.array(B)
+        
+        if st.button("➕ Calcular Suma", type="primary"):
+            resultado = A + B
+            st.success("✅ Suma calculada")
+            st.write("**Resultado: A + B =**")
+            st.dataframe(pd.DataFrame(resultado), use_container_width=True)
+    
+    elif operacion == "Multiplicación de matrices":
+        st.info("✖️ Multiplica dos matrices (columnas de A = filas de B)")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Matriz A:**")
+            filas_a = st.number_input("Filas de A:", min_value=1, max_value=10, value=2, step=1, key="mult_filas_a")
+            cols_a = st.number_input("Columnas de A:", min_value=1, max_value=10, value=3, step=1, key="mult_cols_a")
+            
+            A = []
+            for i in range(int(filas_a)):
+                fila = []
+                cols_input = st.columns(int(cols_a))
+                for j in range(int(cols_a)):
+                    with cols_input[j]:
+                        val = st.number_input(f"A[{i+1},{j+1}]", value=1.0, key=f"mult_a_{i}_{j}", format="%.2f")
+                        fila.append(val)
+                A.append(fila)
+            A = np.array(A)
+        
+        with col2:
+            st.write("**Matriz B:**")
+            filas_b = int(cols_a)  # Debe coincidir con columnas de A
+            st.write(f"Filas de B: {filas_b} (fijo)")
+            cols_b = st.number_input("Columnas de B:", min_value=1, max_value=10, value=2, step=1, key="mult_cols_b")
+            
+            B = []
+            for i in range(filas_b):
+                fila = []
+                cols_input = st.columns(int(cols_b))
+                for j in range(int(cols_b)):
+                    with cols_input[j]:
+                        val = st.number_input(f"B[{i+1},{j+1}]", value=1.0, key=f"mult_b_{i}_{j}", format="%.2f")
+                        fila.append(val)
+                B.append(fila)
+            B = np.array(B)
+        
+        if st.button("✖️ Calcular Multiplicación", type="primary"):
+            resultado = np.dot(A, B)
+            st.success(f"✅ Multiplicación calculada (resultado: {resultado.shape[0]}×{resultado.shape[1]})")
+            st.write("**Resultado: A × B =**")
+            st.dataframe(pd.DataFrame(resultado), use_container_width=True)
+    
+    elif operacion == "Determinante":
+        st.info("🔢 Calcula el determinante de una matriz cuadrada")
+        
+        n = st.number_input("Tamaño de la matriz (n×n):", min_value=2, max_value=10, value=3, step=1, key="det_n")
+        
+        st.write("**Matriz A:**")
+        A = []
+        for i in range(int(n)):
+            fila = []
+            cols_input = st.columns(int(n))
+            for j in range(int(n)):
+                with cols_input[j]:
+                    val = st.number_input(f"A[{i+1},{j+1}]", value=1.0 if i==j else 0.0, key=f"det_a_{i}_{j}", format="%.2f")
+                    fila.append(val)
+            A.append(fila)
+        A = np.array(A)
+        
+        if st.button("🔢 Calcular Determinante", type="primary"):
+            det = np.linalg.det(A)
+            st.success("✅ Determinante calculado")
+            st.metric("Determinante de A", f"{det:.6f}")
+            
+            if abs(det) < 1e-10:
+                st.warning("⚠️ La matriz es singular (no invertible)")
+            else:
+                st.info("✅ La matriz es invertible")
+    
+    elif operacion == "Inversa de matriz":
+        st.info("🔄 Calcula la matriz inversa de una matriz cuadrada")
+        
+        n = st.number_input("Tamaño de la matriz (n×n):", min_value=2, max_value=10, value=3, step=1, key="inv_n")
+        
+        st.write("**Matriz A:**")
+        A = []
+        for i in range(int(n)):
+            fila = []
+            cols_input = st.columns(int(n))
+            for j in range(int(n)):
+                with cols_input[j]:
+                    val = st.number_input(f"A[{i+1},{j+1}]", value=1.0 if i==j else 0.0, key=f"inv_a_{i}_{j}", format="%.2f")
+                    fila.append(val)
+            A.append(fila)
+        A = np.array(A)
+        
+        if st.button("🔄 Calcular Inversa", type="primary"):
+            try:
+                det = np.linalg.det(A)
+                if abs(det) < 1e-10:
+                    st.error("⚠️ La matriz no es invertible (determinante ≈ 0)")
+                else:
+                    inv = np.linalg.inv(A)
+                    st.success("✅ Inversa calculada")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write("**Matriz original A:**")
+                        st.dataframe(pd.DataFrame(A), use_container_width=True)
+                    
+                    with col2:
+                        st.write("**Inversa A⁻¹:**")
+                        st.dataframe(pd.DataFrame(inv), use_container_width=True)
+                    
+                    # Verificación
+                    producto = np.dot(A, inv)
+                    st.write("**Verificación: A × A⁻¹ ≈ I**")
+                    st.dataframe(pd.DataFrame(producto), use_container_width=True)
+            
+            except np.linalg.LinAlgError:
+                st.error("❌ Error: La matriz no es invertible")
 
-def imprimir_matriz(matriz, titulo="Resultado"):
-    print(f"\n--- {titulo} ---")
-    print(matriz)
 
-# SUMA DE MATRICES
-def suma():
-    #limpiar_pantalla()
-    print("\n--- SUMA DE MATRICES ---")
-    print("Primera matriz:")
-    A = leer_matriz()
-    print("\nSegunda matriz:")
-    B = leer_matriz()
-    if A.shape != B.shape:
-        print(" Error: las matrices deben tener el mismo tamaño.")
-    else:
-        imprimir_matriz(A + B, "Suma de matrices")
+# ==========
+# MENÚ PRINCIPAL
+# ==========
 
-# MULTIPLICACIÓN DE MATRICES
-def multiplicacion():
-    #limpiar_pantalla()
-    print("\n--- MULTIPLICACIÓN DE MATRICES ---")
-    print("Primera matriz:")
-    A = leer_matriz()
-    print("\nSegunda matriz:")
-    B = leer_matriz()
-    if A.shape[1] != B.shape[0]:
-        print("Error: columnas de A deben coincidir con filas de B.")
-    else:
-        imprimir_matriz(np.dot(A, B), "Multiplicación de matrices")
+def main():
+    # Título principal
+    st.title("🧮 Calculadora de Métodos Numéricos")
+    st.markdown("### 📚 Proyecto de Modelado Computacional")
+    st.markdown("---")
+    
+    # Sidebar para navegación
+    st.sidebar.header("🗂️ Menú de Métodos")
+    
+    categoria = st.sidebar.radio(
+        "Selecciona la categoría:",
+        ["🏠 Inicio", "📊 Sistemas No Lineales", "📐 Sistemas de Ecuaciones Lineales", "🔢 Álgebra Matricial"]
+    )
+    
+    if categoria == "🏠 Inicio":
+        st.header("👋 Bienvenido")
+        
+        st.markdown("""
+        Esta aplicación web implementa diversos **métodos numéricos** estudiados en el curso de Modelado Computacional.
+        
+        ### 📚 Contenido disponible:
+        
+        #### 1️⃣ **Sistemas No Lineales**
+        - 🔍 Método de Bisección
+        - 📐 Método de la Secante
+        - 🔢 Newton-Raphson (2 variables)
+        - 🔢 Newton-Raphson (3 variables)
+        
+        #### 2️⃣ **Sistemas de Ecuaciones Lineales**
+        
+        **Métodos Directos:**
+        - 🔄 Método de la Inversa
+        - ➗ Eliminación de Gauss
+        - 📊 Gauss-Jordan
+        
+        **Métodos Iterativos:**
+        - 🔁 Jacobi
+        - 🔁 Gauss-Seidel
+        
+        #### 3️⃣ **Álgebra Matricial**
+        - ➕ Suma de matrices
+        - ✖️ Multiplicación de matrices
+        - 🔢 Determinante
+        - 🔄 Inversa de matriz
+        
+        ---
+        
+        ### 🚀 ¿Cómo usar esta aplicación?
+        
+        1. Selecciona una categoría en el menú lateral
+        2. Elige el método específico que quieres usar
+        3. Ingresa los parámetros requeridos
+        4. Presiona el botón "Calcular"
+        5. Visualiza los resultados, gráficas y tablas
+        6. Descarga los datos en formato CSV si lo necesitas
+        
+        ---
+        
+        ### 📖 Notas importantes:
+        
+        - Las funciones se ingresan usando notación Python: `**` para potencias, `sin(x)`, `cos(x)`, `exp(x)`, `log(x)`, etc.
+        - Los métodos iterativos muestran el historial completo de iteraciones
+        - Todas las gráficas son interactivas y puedes descargarlas
+        - Los resultados se muestran con alta precisión (8 decimales)
+        
+        ---
+        
+        **💡 Tip:** Comienza con un método simple como Bisección para familiarizarte con la interfaz.
+        """)
+        
+        # Ejemplos rápidos
+        with st.expander("📝 Ejemplos de funciones que puedes usar"):
+            st.code("""
+# Polinomiales
+x**3 - x - 2
+x**4 - x - 10
+x**2 - 4
 
-# DETERMINANTE DE MATRIZ
-def determinante():
-    #limpiar_pantalla()
-    print("\n--- DETERMINANTE DE MATRIZ ---")
-    A = leer_matriz()
-    if A.shape[0] != A.shape[1]:
-        print("Error: la matriz debe ser cuadrada.")
-    else:
-        det = np.linalg.det(A)
-        print(f"\nDeterminante: {det:.6f}")
+# Exponenciales
+exp(x) - 3*x
+2**x - x - 3
 
-# INVERSA DE MATRIZ
-def inversa():
-    #limpiar_pantalla()
-    print("\n--- INVERSA DE MATRIZ ---")
-    A = leer_matriz()
-    if A.shape[0] != A.shape[1]:
-        print("Error: la matriz debe ser cuadrada.")
-    else:
-        try:
-            inv = np.linalg.inv(A)
-            imprimir_matriz(inv, "Matriz inversa")
-        except np.linalg.LinAlgError:
-            print("Error: la matriz no es invertible.")
+# Trigonométricas
+sin(x) - x/2
+cos(x) - x
+tan(x) - x
+
+# Logarítmicas
+log(x) - 1/x
+x*log(x) - 1
+
+# Mixtas
+exp(x) - 3*x**2 + 2*sin(x)
+x**3 - cos(x) - 1
+log(x+1) + x**2 - 3
+            """, language="python")
+    
+    elif categoria == "📊 Sistemas No Lineales":
+        st.sidebar.markdown("---")
+        metodo_nl = st.sidebar.selectbox(
+            "Elige un método:",
+            ["Bisección", "Secante", "Newton-Raphson (2V)", "Newton-Raphson (3V)"]
+        )
+        
+        if metodo_nl == "Bisección":
+            metodo_biseccion_ui()
+        elif metodo_nl == "Secante":
+            metodo_secante_ui()
+        elif metodo_nl == "Newton-Raphson (2V)":
+            newton_raphson_2v_ui()
+        elif metodo_nl == "Newton-Raphson (3V)":
+            newton_raphson_3v_ui()
+    
+    elif categoria == "📐 Sistemas de Ecuaciones Lineales":
+        sistemas_lineales_ui()
+    
+    elif categoria == "🔢 Álgebra Matricial":
+        algebra_matricial_ui()
+    
+    # Footer
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 👨‍🎓 Información")
+    st.sidebar.info("""
+    **Proyecto:** Métodos Numéricos
+    
+    **Curso:** Modelado Computacional
+    
+    **Tecnologías:**
+    - Python 3
+    - Streamlit
+    - NumPy
+    - Matplotlib
+    - SciPy
+    - SymPy
+    """)
+    
+    st.sidebar.success("✅ Aplicación lista para usar")
+
+
+# Ejecutar la aplicación
+if __name__ == "__main__":
+    main()
