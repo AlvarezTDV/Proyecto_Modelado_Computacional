@@ -686,6 +686,273 @@ def newton_modificado_3v_ui():
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
 
+def punto_fijo_2v_ui():
+    st.subheader("🔄 Punto Fijo (2 variables)")
+    
+    st.markdown("""
+    **Descripción:** Método iterativo donde x = g₁(x,y) y y = g₂(x,y).
+    
+    **Fórmula:** $X_{n+1} = G(X_n)$ donde $G = [g_1(x,y), g_2(x,y)]^T$
+    """)
+    
+    st.info("Ingresa las funciones de iteración (no las ecuaciones originales)")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        fx = st.text_input("x = g₁(x,y)", value="(4 - y**2) / 2", help="Función de iteración para x", key="pf2_fx")
+    with col2:
+        fy = st.text_input("y = g₂(x,y)", value="(x + 1)", help="Función de iteración para y", key="pf2_fy")
+    
+    col_x, col_y = st.columns(2)
+    with col_x:
+        x0 = st.number_input("Valor inicial x₀:", value=1.0, key="pf2_x0")
+    with col_y:
+        y0 = st.number_input("Valor inicial y₀:", value=1.0, key="pf2_y0")
+    
+    col_tol, col_max = st.columns(2)
+    with col_tol:
+        tol = st.number_input("Tolerancia:", value=1e-6, format="%.2e", key="pf2_tol")
+    with col_max:
+        max_iter = st.number_input("Máximo iteraciones:", value=100, min_value=1, step=1, key="pf2_max")
+    
+    if st.button("🚀 Calcular Punto Fijo 2V", type="primary"):
+        try:
+            # Limpiar entrada
+            fx_clean = limpiar_input(fx)
+            fy_clean = limpiar_input(fy)
+            
+            # Función de iteración
+            def g(v):
+                x, y = v
+                locals_dict = {"x": x, "y": y, **safe_funcs}
+                return np.array([
+                    eval(fx_clean, {"__builtins__": None}, locals_dict),
+                    eval(fy_clean, {"__builtins__": None}, locals_dict)
+                ])
+            
+            # Iteraciones
+            datos = []
+            v = np.array([x0, y0])
+            convergio = False
+            
+            for i in range(int(max_iter)):
+                try:
+                    nuevo = g(v)
+                    error = np.linalg.norm(nuevo - v)
+                    
+                    datos.append({
+                        "Iteración": i + 1,
+                        "x₀": round(v[0], 8),
+                        "y₀": round(v[1], 8),
+                        "x₁": round(nuevo[0], 8),
+                        "y₁": round(nuevo[1], 8),
+                        "Error": round(error, 10)
+                    })
+                    
+                    if error < tol:
+                        v = nuevo
+                        convergio = True
+                        break
+                    
+                    v = nuevo
+                    
+                except Exception as e:
+                    st.error(f"⚠ Error en iteración {i+1}: {str(e)}")
+                    break
+            
+            # Mostrar resultados
+            if convergio:
+                st.success(f"✅ Convergió en {i+1} iteraciones")
+            else:
+                st.warning(f"⚠️ No alcanzó la tolerancia en {max_iter} iteraciones")
+            
+            col_m1, col_m2, col_m3 = st.columns(3)
+            with col_m1:
+                st.metric("x", f"{v[0]:.8f}")
+            with col_m2:
+                st.metric("y", f"{v[1]:.8f}")
+            with col_m3:
+                st.metric("Iteraciones", len(datos))
+            
+            # Gráfica y tabla
+            col_graf, col_tab = st.columns([1.5, 1])
+            
+            with col_graf:
+                st.subheader("📈 Curvas x = g₁(x,y) y y = g₂(x,y)")
+                
+                try:
+                    x_vals = np.linspace(v[0] - 3, v[0] + 3, 200)
+                    y_vals = np.linspace(v[1] - 3, v[1] + 3, 200)
+                    X, Y = np.meshgrid(x_vals, y_vals)
+                    
+                    # Calcular g₁(x,y) - x y g₂(x,y) - y para graficar donde son cero
+                    Z1 = np.vectorize(lambda x, y: eval(fx_clean, {"__builtins__": None, "x": x, "y": y, **safe_funcs}))(X, Y) - X
+                    Z2 = np.vectorize(lambda x, y: eval(fy_clean, {"__builtins__": None, "x": x, "y": y, **safe_funcs}))(X, Y) - Y
+                    
+                    fig, ax = plt.subplots(figsize=(10, 7))
+                    ax.contour(X, Y, Z1, levels=[0], colors='blue', linewidths=2, label='x = g₁(x,y)')
+                    ax.contour(X, Y, Z2, levels=[0], colors='red', linewidths=2, label='y = g₂(x,y)')
+                    ax.scatter(v[0], v[1], color='black', s=150, zorder=5, label='Punto fijo')
+                    ax.scatter(x0, y0, color='green', s=100, marker='x', label='Inicial')
+                    ax.grid(True, alpha=0.3)
+                    ax.set_xlabel("x")
+                    ax.set_ylabel("y")
+                    ax.legend()
+                    ax.set_title("Método de Punto Fijo (2V)")
+                    st.pyplot(fig)
+                except Exception as e:
+                    st.warning(f"⚠ No se pudo graficar: {str(e)}")
+            
+            with col_tab:
+                st.subheader("📋 Tabla de iteraciones")
+                df = pd.DataFrame(datos)
+                st.dataframe(df, use_container_width=True, height=400)
+                
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="⬇️ Descargar CSV",
+                    data=csv,
+                    file_name="punto_fijo_2v.csv",
+                    mime="text/csv"
+                )
+        
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+
+
+def punto_fijo_3v_ui():
+    st.subheader("🔄 Punto Fijo (3 variables)")
+    
+    st.markdown("""
+    **Descripción:** Método iterativo para 3 variables donde x = g₁(x,y,z), y = g₂(x,y,z), z = g₃(x,y,z).
+    """)
+    
+    st.info("Ingresa las funciones de iteración")
+    
+    fx = st.text_input("x = g₁(x,y,z)", value="(9 - y**2 - z**2) / 3", key="pf3_fx")
+    fy = st.text_input("y = g₂(x,y,z)", value="(1 + x - z) / 2", key="pf3_fy")
+    fz = st.text_input("z = g₃(x,y,z)", value="(1 + x - y) / 2", key="pf3_fz")
+    
+    col_x, col_y, col_z = st.columns(3)
+    with col_x:
+        x0 = st.number_input("x₀:", value=1.0, key="pf3_x0")
+    with col_y:
+        y0 = st.number_input("y₀:", value=1.0, key="pf3_y0")
+    with col_z:
+        z0 = st.number_input("z₀:", value=1.0, key="pf3_z0")
+    
+    col_tol, col_max = st.columns(2)
+    with col_tol:
+        tol = st.number_input("Tolerancia:", value=1e-6, format="%.2e", key="pf3_tol")
+    with col_max:
+        max_iter = st.number_input("Máximo iteraciones:", value=100, min_value=1, step=1, key="pf3_max")
+    
+    if st.button("🚀 Calcular Punto Fijo 3V", type="primary"):
+        try:
+            # Limpiar entrada
+            fx_clean = limpiar_input(fx)
+            fy_clean = limpiar_input(fy)
+            fz_clean = limpiar_input(fz)
+            
+            # Función de iteración
+            def g(v):
+                x, y, z = v
+                locals_dict = {"x": x, "y": y, "z": z, **safe_funcs}
+                return np.array([
+                    eval(fx_clean, {"__builtins__": None}, locals_dict),
+                    eval(fy_clean, {"__builtins__": None}, locals_dict),
+                    eval(fz_clean, {"__builtins__": None}, locals_dict)
+                ])
+            
+            # Iteraciones
+            datos = []
+            v = np.array([x0, y0, z0])
+            pts = [v.copy()]
+            convergio = False
+            
+            for i in range(int(max_iter)):
+                try:
+                    nuevo = g(v)
+                    error = np.linalg.norm(nuevo - v)
+                    
+                    datos.append({
+                        "Iteración": i + 1,
+                        "x₀": round(v[0], 8),
+                        "y₀": round(v[1], 8),
+                        "z₀": round(v[2], 8),
+                        "x₁": round(nuevo[0], 8),
+                        "y₁": round(nuevo[1], 8),
+                        "z₁": round(nuevo[2], 8),
+                        "Error": round(error, 10)
+                    })
+                    
+                    v = nuevo
+                    pts.append(v.copy())
+                    
+                    if error < tol:
+                        convergio = True
+                        break
+                    
+                except Exception as e:
+                    st.error(f"⚠ Error en iteración {i+1}: {str(e)}")
+                    break
+            
+            # Mostrar resultados
+            if convergio:
+                st.success(f"✅ Convergió en {i+1} iteraciones")
+            else:
+                st.warning(f"⚠️ No alcanzó la tolerancia en {max_iter} iteraciones")
+            
+            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+            with col_m1:
+                st.metric("x", f"{v[0]:.8f}")
+            with col_m2:
+                st.metric("y", f"{v[1]:.8f}")
+            with col_m3:
+                st.metric("z", f"{v[2]:.8f}")
+            with col_m4:
+                st.metric("Iteraciones", len(datos))
+            
+            # Gráfica y tabla
+            col_graf, col_tab = st.columns([1.5, 1])
+            
+            with col_graf:
+                st.subheader("📊 Trayectoria de convergencia 3D")
+                
+                try:
+                    from mpl_toolkits.mplot3d import Axes3D
+                    pts = np.array(pts)
+                    
+                    fig = plt.figure(figsize=(10, 7))
+                    ax = fig.add_subplot(111, projection='3d')
+                    ax.plot(pts[:, 0], pts[:, 1], pts[:, 2], marker='o', color='blue', linewidth=2, markersize=6, label="Trayectoria")
+                    ax.scatter(pts[-1, 0], pts[-1, 1], pts[-1, 2], color='red', s=150, label='Punto fijo')
+                    ax.scatter(x0, y0, z0, color='green', s=100, marker='x', label='Inicial')
+                    ax.set_xlabel("x")
+                    ax.set_ylabel("y")
+                    ax.set_zlabel("z")
+                    ax.set_title("Método de Punto Fijo (3V)")
+                    ax.legend()
+                    st.pyplot(fig)
+                except Exception as e:
+                    st.warning(f"⚠ No se pudo graficar: {str(e)}")
+            
+            with col_tab:
+                st.subheader("📋 Tabla de iteraciones")
+                df = pd.DataFrame(datos)
+                st.dataframe(df, use_container_width=True, height=400)
+                
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="⬇️ Descargar CSV",
+                    data=csv,
+                    file_name="punto_fijo_3v.csv",
+                    mime="text/csv"
+                )
+        
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+
 # ======================
 # SISTEMAS DE ECUACIONES
 # ======================
@@ -1067,6 +1334,8 @@ def main():
         - 🔢 Newton-Raphson (3 variables)
         - 🔢 Newton-Raphson Modificado (2 variables)
         - 🔢 Newton-Raphson Modificado (3 variables)
+        - 🔄 Método de Punto Fijo (2 variables)
+        - 🔄 Método de Punto Fijo (3 variables)
         
         #### 2️⃣ **Sistemas de Ecuaciones Lineales**
         
@@ -1141,7 +1410,7 @@ log(x+1) + x**2 - 3
         st.sidebar.markdown("---")
         metodo_nl = st.sidebar.selectbox(
             "Elige un método:",
-            ["Bisección", "Secante", "Newton-Raphson (2V)", "Newton-Raphson (3V)", "Newton Modificado (2V)", "Newton Modificado (3V)"]
+            ["Bisección", "Secante", "Newton-Raphson (2V)", "Newton-Raphson (3V)", "Newton Modificado (2V)", "Newton Modificado (3V)", "Punto Fijo (2V)", "Punto Fijo (3V)"]
         )
         
         if metodo_nl == "Bisección":
@@ -1156,6 +1425,10 @@ log(x+1) + x**2 - 3
             newton_modificado_2v_ui()
         elif metodo_nl == "Newton Modificado (3V)":
             newton_modificado_3v_ui()
+        elif metodo_nl == "Punto Fijo (2V)":
+            punto_fijo_2v_ui()
+        elif metodo_nl == "Punto Fijo (3V)":
+            punto_fijo_3v_ui()
     
     elif categoria == "📐 Sistemas de Ecuaciones Lineales":
         sistemas_lineales_ui()
