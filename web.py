@@ -406,6 +406,285 @@ def newton_raphson_3v_ui():
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
 
+def newton_modificado_2v_ui():
+    st.subheader("🔢 Newton-Raphson Modificado (2 variables)")
+    
+    st.markdown("""
+    **Descripción:** Versión modificada de Newton-Raphson que calcula explícitamente la matriz Jacobiana.
+    
+    Usa la fórmula: $X_{n+1} = X_n - J^{-1}(X_n) \\cdot F(X_n)$
+    """)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        f1_str = st.text_input("f₁(x,y) =", value="x**2 + y**2 - 4", key="nm2v_f1")
+    with col2:
+        f2_str = st.text_input("f₂(x,y) =", value="x - y - 1", key="nm2v_f2")
+    
+    col_x, col_y = st.columns(2)
+    with col_x:
+        x0_init = st.number_input("Valor inicial x₀:", value=1.0, key="nm2v_x0")
+    with col_y:
+        y0_init = st.number_input("Valor inicial y₀:", value=1.0, key="nm2v_y0")
+    
+    col_tol, col_max = st.columns(2)
+    with col_tol:
+        tol = st.number_input("Tolerancia:", value=1e-6, format="%.2e", key="nm2v_tol")
+    with col_max:
+        max_iter = st.number_input("Máximo iteraciones:", value=100, min_value=1, step=1, key="nm2v_max")
+    
+    if st.button("🚀 Calcular Newton Modificado 2V", type="primary"):
+        try:
+            x, y = sp.symbols("x y")
+            
+            # Limpiar entrada
+            f1_str_clean = limpiar_input(f1_str)
+            f2_str_clean = limpiar_input(f2_str)
+            
+            # Parsear expresiones
+            f1 = parse_expr(f1_str_clean, {"x": x, "y": y, **user_funcs})
+            f2 = parse_expr(f2_str_clean, {"x": x, "y": y, **user_funcs})
+            
+            # Crear vector F y calcular Jacobiano
+            Fx = sp.Matrix([f1, f2])
+            vars_vec = sp.Matrix([x, y])
+            J = Fx.jacobian(vars_vec)
+            
+            # Lambdify para evaluación numérica
+            f_lamb = sp.lambdify((x, y), Fx, "numpy")
+            J_lamb = sp.lambdify((x, y), J, "numpy")
+            
+            # Inicializar
+            x0, y0 = x0_init, y0_init
+            datos = []
+            
+            # Iteraciones
+            for i in range(int(max_iter)):
+                Fv = np.array(f_lamb(x0, y0), dtype=float).reshape(2, 1)
+                Jv = np.array(J_lamb(x0, y0), dtype=float)
+                
+                try:
+                    delta = np.linalg.solve(Jv, -Fv)
+                except np.linalg.LinAlgError:
+                    st.error("⚠ Error: matriz Jacobiana singular.")
+                    return
+                
+                x1, y1 = (np.array([x0, y0]) + delta.flatten())
+                error = np.linalg.norm(delta)
+                
+                datos.append({
+                    "Iteración": i + 1,
+                    "x₀": round(x0, 8),
+                    "y₀": round(y0, 8),
+                    "x₁": round(x1, 8),
+                    "y₁": round(y1, 8),
+                    "Error": round(error, 10)
+                })
+                
+                if error < tol:
+                    x0, y0 = x1, y1
+                    break
+                
+                x0, y0 = x1, y1
+            
+            # Mostrar resultados
+            if error < tol:
+                st.success(f"✅ Convergió en {i+1} iteraciones")
+            else:
+                st.warning(f"⚠️ No convergió completamente en {max_iter} iteraciones")
+            
+            col_m1, col_m2, col_m3 = st.columns(3)
+            with col_m1:
+                st.metric("x", f"{x0:.8f}")
+            with col_m2:
+                st.metric("y", f"{y0:.8f}")
+            with col_m3:
+                st.metric("Iteraciones", i+1)
+            
+            # Gráfica y tabla
+            col_graf, col_tab = st.columns([1.5, 1])
+            
+            with col_graf:
+                st.subheader("📈 Curvas de nivel")
+                
+                try:
+                    x_vals = np.linspace(x0 - 3, x0 + 3, 200)
+                    y_vals = np.linspace(y0 - 3, y0 + 3, 200)
+                    X, Y = np.meshgrid(x_vals, y_vals)
+                    Z1 = np.vectorize(lambda x, y: eval(f1_str_clean, {"x": x, "y": y, **safe_funcs}))(X, Y)
+                    Z2 = np.vectorize(lambda x, y: eval(f2_str_clean, {"x": x, "y": y, **safe_funcs}))(X, Y)
+                    
+                    fig, ax = plt.subplots(figsize=(10, 7))
+                    ax.contour(X, Y, Z1, levels=[0], colors='blue', linewidths=2, label='f₁=0')
+                    ax.contour(X, Y, Z2, levels=[0], colors='red', linewidths=2, label='f₂=0')
+                    ax.scatter(x0, y0, color='black', s=150, zorder=5, label='Solución')
+                    ax.scatter(x0_init, y0_init, color='green', s=100, marker='x', label='Inicial')
+                    ax.grid(True, alpha=0.3)
+                    ax.set_xlabel("x")
+                    ax.set_ylabel("y")
+                    ax.legend()
+                    ax.set_title("Newton-Raphson Modificado (2V)")
+                    st.pyplot(fig)
+                except Exception as e:
+                    st.warning(f"⚠ No se pudo graficar: {str(e)}")
+            
+            with col_tab:
+                st.subheader("📋 Tabla de iteraciones")
+                df = pd.DataFrame(datos)
+                st.dataframe(df, use_container_width=True, height=400)
+                
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="⬇️ Descargar CSV",
+                    data=csv,
+                    file_name="newton_modificado_2v.csv",
+                    mime="text/csv"
+                )
+        
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+
+def newton_modificado_3v_ui():
+    st.subheader("🔢 Newton-Raphson Modificado (3 variables)")
+    
+    st.markdown("""
+    **Descripción:** Versión modificada de Newton-Raphson para 3 variables con cálculo explícito del Jacobiano.
+    """)
+    
+    f1_str = st.text_input("f₁(x,y,z) =", value="x**2 + y**2 + z**2 - 9", key="nm3v_f1")
+    f2_str = st.text_input("f₂(x,y,z) =", value="x + y - z - 1", key="nm3v_f2")
+    f3_str = st.text_input("f₃(x,y,z) =", value="x - y + z - 1", key="nm3v_f3")
+    
+    col_x, col_y, col_z = st.columns(3)
+    with col_x:
+        x0_init = st.number_input("x₀:", value=1.0, key="nm3v_x0")
+    with col_y:
+        y0_init = st.number_input("y₀:", value=1.0, key="nm3v_y0")
+    with col_z:
+        z0_init = st.number_input("z₀:", value=1.0, key="nm3v_z0")
+    
+    col_tol, col_max = st.columns(2)
+    with col_tol:
+        tol = st.number_input("Tolerancia:", value=1e-6, format="%.2e", key="nm3v_tol")
+    with col_max:
+        max_iter = st.number_input("Máximo iteraciones:", value=100, min_value=1, step=1, key="nm3v_max")
+    
+    if st.button("🚀 Calcular Newton Modificado 3V", type="primary"):
+        try:
+            x, y, z = sp.symbols("x y z")
+            
+            # Limpiar entrada
+            f1_str_clean = limpiar_input(f1_str)
+            f2_str_clean = limpiar_input(f2_str)
+            f3_str_clean = limpiar_input(f3_str)
+            
+            # Parsear expresiones
+            f1 = parse_expr(f1_str_clean, {"x": x, "y": y, "z": z, **user_funcs})
+            f2 = parse_expr(f2_str_clean, {"x": x, "y": y, "z": z, **user_funcs})
+            f3 = parse_expr(f3_str_clean, {"x": x, "y": y, "z": z, **user_funcs})
+            
+            # Crear vector F y calcular Jacobiano
+            Fx = sp.Matrix([f1, f2, f3])
+            vars_vec = sp.Matrix([x, y, z])
+            J = Fx.jacobian(vars_vec)
+            
+            # Lambdify para evaluación numérica
+            f_lamb = sp.lambdify((x, y, z), Fx, "numpy")
+            J_lamb = sp.lambdify((x, y, z), J, "numpy")
+            
+            # Inicializar
+            x0, y0, z0 = x0_init, y0_init, z0_init
+            datos = []
+            pts = [[x0, y0, z0]]
+            
+            # Iteraciones
+            for i in range(int(max_iter)):
+                Fv = np.array(f_lamb(x0, y0, z0), dtype=float).reshape(3, 1)
+                Jv = np.array(J_lamb(x0, y0, z0), dtype=float)
+                
+                try:
+                    delta = np.linalg.solve(Jv, -Fv)
+                except np.linalg.LinAlgError:
+                    st.error("⚠ Error: matriz Jacobiana singular.")
+                    return
+                
+                x1, y1, z1 = (np.array([x0, y0, z0]) + delta.flatten())
+                error = np.linalg.norm(delta)
+                
+                datos.append({
+                    "Iteración": i + 1,
+                    "x₀": round(x0, 8),
+                    "y₀": round(y0, 8),
+                    "z₀": round(z0, 8),
+                    "x₁": round(x1, 8),
+                    "y₁": round(y1, 8),
+                    "z₁": round(z1, 8),
+                    "Error": round(error, 10)
+                })
+                
+                pts.append([x1, y1, z1])
+                
+                if error < tol:
+                    x0, y0, z0 = x1, y1, z1
+                    break
+                
+                x0, y0, z0 = x1, y1, z1
+            
+            # Mostrar resultados
+            if error < tol:
+                st.success(f"✅ Convergió en {i+1} iteraciones")
+            else:
+                st.warning(f"⚠️ No convergió completamente en {max_iter} iteraciones")
+            
+            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+            with col_m1:
+                st.metric("x", f"{x0:.8f}")
+            with col_m2:
+                st.metric("y", f"{y0:.8f}")
+            with col_m3:
+                st.metric("z", f"{z0:.8f}")
+            with col_m4:
+                st.metric("Iteraciones", i+1)
+            
+            # Gráfica y tabla
+            col_graf, col_tab = st.columns([1.5, 1])
+            
+            with col_graf:
+                st.subheader("📊 Trayectoria 3D")
+                
+                try:
+                    from mpl_toolkits.mplot3d import Axes3D
+                    pts = np.array(pts)
+                    
+                    fig = plt.figure(figsize=(10, 7))
+                    ax = fig.add_subplot(111, projection='3d')
+                    ax.plot(pts[:, 0], pts[:, 1], pts[:, 2], marker='o', color='blue', linewidth=2, markersize=6, label="Trayectoria")
+                    ax.scatter(x0, y0, z0, color='red', s=150, label='Solución')
+                    ax.scatter(x0_init, y0_init, z0_init, color='green', s=100, marker='x', label='Inicial')
+                    ax.set_xlabel("x")
+                    ax.set_ylabel("y")
+                    ax.set_zlabel("z")
+                    ax.set_title("Newton-Raphson Modificado (3V)")
+                    ax.legend()
+                    st.pyplot(fig)
+                except Exception as e:
+                    st.warning(f"⚠ No se pudo graficar: {str(e)}")
+            
+            with col_tab:
+                st.subheader("📋 Tabla de iteraciones")
+                df = pd.DataFrame(datos)
+                st.dataframe(df, use_container_width=True, height=400)
+                
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="⬇️ Descargar CSV",
+                    data=csv,
+                    file_name="newton_modificado_3v.csv",
+                    mime="text/csv"
+                )
+        
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
 
 # ======================
 # SISTEMAS DE ECUACIONES
@@ -786,6 +1065,8 @@ def main():
         - 📐 Método de la Secante
         - 🔢 Newton-Raphson (2 variables)
         - 🔢 Newton-Raphson (3 variables)
+        - 🔢 Newton-Raphson Modificado (2 variables)
+        - 🔢 Newton-Raphson Modificado (3 variables)
         
         #### 2️⃣ **Sistemas de Ecuaciones Lineales**
         
@@ -860,7 +1141,7 @@ log(x+1) + x**2 - 3
         st.sidebar.markdown("---")
         metodo_nl = st.sidebar.selectbox(
             "Elige un método:",
-            ["Bisección", "Secante", "Newton-Raphson (2V)", "Newton-Raphson (3V)"]
+            ["Bisección", "Secante", "Newton-Raphson (2V)", "Newton-Raphson (3V)", "Newton Modificado (2V)", "Newton Modificado (3V)"]
         )
         
         if metodo_nl == "Bisección":
@@ -871,6 +1152,10 @@ log(x+1) + x**2 - 3
             newton_raphson_2v_ui()
         elif metodo_nl == "Newton-Raphson (3V)":
             newton_raphson_3v_ui()
+        elif metodo_nl == "Newton Modificado (2V)":
+            newton_modificado_2v_ui()
+        elif metodo_nl == "Newton Modificado (3V)":
+            newton_modificado_3v_ui()
     
     elif categoria == "📐 Sistemas de Ecuaciones Lineales":
         sistemas_lineales_ui()
